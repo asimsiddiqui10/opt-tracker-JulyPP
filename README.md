@@ -1,8 +1,7 @@
 # July OPT EAD Tracker
 
-A tiny crowd-sourced tracker for July premium-processing OPT EAD cases. One static page plus
-two serverless functions on Vercel, with a Redis store for the data. No signup, no email,
-no third-party dashboard.
+A tiny crowd-sourced tracker for July premium-processing OPT EAD cases. Static page on Vercel,
+serverless functions for the API, Supabase Postgres for the data. No signup, no email.
 
 **username · PP start date · status** — that's the whole form. Entering the same username
 again updates that row.
@@ -12,23 +11,59 @@ Statuses: `Still waiting` → `Silent API update` → `Approved` → `Card produ
 ## Layout
 
 ```
-public/index.html   the entire UI
+public/index.html   the entire UI (no keys in it)
 api/entries.js      GET  /api/entries  → all rows as JSON
 api/save.js         POST /api/save     → insert or update one row
-lib/redis.js        ~20 lines of fetch() over the Upstash REST API
+api/ping.js         GET  /api/ping     → daily cron, keeps Supabase awake
+lib/supabase.js     ~25 lines of fetch() over the Supabase REST API
+schema.sql          run once in Supabase
 ```
 
-No dependencies, no build step. Vercel serves `public/` and turns `api/*.js` into functions.
+No dependencies, no build step.
 
 ## Setup
 
-1. Import the repo at [vercel.com/new](https://vercel.com/new) and deploy. Framework preset
-   will read as **Other** — leave it, and leave the build command empty.
-2. In the project: **Storage → Create Database → Redis** (Upstash), then **Connect** it to
-   this project. Vercel injects the credentials as environment variables automatically.
-3. **Deployments → ⋯ → Redeploy** so the functions pick up the new variables.
+### 1. Supabase
 
-That's it — there are no keys to paste into any file.
+Create a project, then **SQL Editor → New query** → paste `schema.sql` → **Run**.
+
+Then open **Project Settings → API** and copy two values:
+
+| Value | Where it is | Goes into Vercel as |
+|---|---|---|
+| Project URL | `https://xxxxxxxx.supabase.co` | `SUPABASE_URL` |
+| Secret key (`sb_secret_…`), a.k.a. the legacy `service_role` key | same page, under API Keys | `SUPABASE_SERVICE_ROLE_KEY` |
+
+**Use the secret/service_role key, not the publishable/anon key.** The table has row-level
+security enabled with zero policies, so the anon key can do literally nothing. Only the secret
+key works — and it is only ever read by the server functions, never sent to the browser.
+
+Never paste the secret key into `public/index.html` or commit it.
+
+### 2. Vercel
+
+**Project → Settings → Environment Variables**, add both, all three environments checked:
+
+```
+SUPABASE_URL                = https://xxxxxxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY   = sb_secret_...
+```
+
+Then **Deployments → ⋯ → Redeploy**. Environment variables are baked in at deploy time, so a
+deployment made before you added them will not see them.
+
+## Uptime
+
+A free Supabase project **pauses after 7 days with no API requests**, and un-pausing is a
+manual click in the dashboard. `api/ping.js` plus the cron in `vercel.json` hits the database
+every day at 12:00 UTC, so the 7-day timer never gets close to expiring. Vercel Hobby allows
+daily crons, which is all this needs.
+
+Vercel functions themselves never sleep — a cold start is a few hundred milliseconds, not
+downtime.
+
+If you want a real uptime guarantee rather than a workaround, Supabase Pro ($25/mo) removes
+auto-pausing entirely. For a 20-person tracker the cron is enough.
 
 ## How people use it
 
@@ -54,20 +89,20 @@ Dates outside that window still show up if someone enters one — the range is a
 There are no passwords: anyone who knows a username can change that row. That is the
 deliberate trade for zero friction, and it is fine for a group of ~20.
 
-To remove a row, open the Redis store in the Vercel dashboard and run:
+Remove a row in **Table Editor → entries**, or in SQL Editor:
 
+```sql
+delete from public.entries where username = 'someone';
+truncate public.entries;              -- wipe everything
 ```
-HDEL opt:entries <username>
-```
 
-To wipe everything: `DEL opt:entries`
-
-New usernames are capped at 200 so nobody can fill the store.
+New usernames are capped at 200 so nobody can fill the table.
 
 ## Local development
 
 ```bash
+npx vercel link
 npx vercel dev
 ```
 
-Needs the project linked (`npx vercel link`) so it can pull the Redis variables.
+`vercel dev` pulls the environment variables from the linked project.
