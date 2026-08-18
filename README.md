@@ -1,77 +1,73 @@
 # July OPT EAD Tracker
 
-One static HTML page + a free Supabase database. Three fields, no signup, no email.
-Total setup: ~10 minutes.
+A tiny crowd-sourced tracker for July premium-processing OPT EAD cases. One static page plus
+two serverless functions on Vercel, with a Redis store for the data. No signup, no email,
+no third-party dashboard.
 
 **username · PP start date · status** — that's the whole form. Entering the same username
-again updates that row, so people can come back and change their status.
+again updates that row.
 
 Statuses: `Still waiting` → `Silent API update` → `Approved` → `Card produced` → `Card delivered`
 
-## 1. Database (5 min)
+## Layout
 
-1. https://supabase.com → sign in with GitHub → **New project** (free tier, US region).
-2. Wait for provisioning to finish.
-3. **SQL Editor** → **New query** → paste all of `schema.sql` → **Run**.
-   (Safe to re-run — it drops and recreates everything.)
-4. **Project Settings → API**, copy two values:
-   - **Project URL** — `https://xxxxxxxx.supabase.co`
-   - **anon public** key — long string starting `eyJ...`
+```
+public/index.html   the entire UI
+api/entries.js      GET  /api/entries  → all rows as JSON
+api/save.js         POST /api/save     → insert or update one row
+lib/redis.js        ~20 lines of fetch() over the Upstash REST API
+```
 
-## 2. Paste the keys
+No dependencies, no build step. Vercel serves `public/` and turns `api/*.js` into functions.
 
-Top of the `<script>` block in `site/index.html`:
+## Setup
+
+1. Import the repo at [vercel.com/new](https://vercel.com/new) and deploy. Framework preset
+   will read as **Other** — leave it, and leave the build command empty.
+2. In the project: **Storage → Create Database → Redis** (Upstash), then **Connect** it to
+   this project. Vercel injects the credentials as environment variables automatically.
+3. **Deployments → ⋯ → Redeploy** so the functions pick up the new variables.
+
+That's it — there are no keys to paste into any file.
+
+## How people use it
+
+- First visit: username + PP start date + status → Save.
+- Later: same username, new status, Save. The browser remembers the username, so returning
+  visitors get their row pre-filled and highlighted.
+- The page refreshes its data every 60 seconds.
+
+## Chart range
+
+Every date from July 15–31 always appears, even with zero entries. To widen it, edit the two
+constants at the top of the `<script>` block in `public/index.html`:
 
 ```js
-const SUPABASE_URL = "https://xxxxxxxx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJ...";
+const RANGE_START = "2026-07-15";
+const RANGE_END   = "2026-07-31";
 ```
 
-Open `site/index.html` in a browser and submit a test row to confirm it works.
+Dates outside that window still show up if someone enters one — the range is a floor, not a filter.
 
-## 3. Deploy (2 min)
+## Moderating
 
-**Netlify Drop** — drag the **`site`** folder (not the project root) onto
-https://app.netlify.com/drop.
-Live URL instantly, no account needed to start.
+There are no passwords: anyone who knows a username can change that row. That is the
+deliberate trade for zero friction, and it is fine for a group of ~20.
 
-**Vercel:**
+To remove a row, open the Redis store in the Vercel dashboard and run:
+
+```
+HDEL opt:entries <username>
+```
+
+To wipe everything: `DEL opt:entries`
+
+New usernames are capped at 200 so nobody can fill the store.
+
+## Local development
 
 ```bash
-npx vercel --prod
+npx vercel dev
 ```
 
-GitHub Pages and Cloudflare Pages work too — it's a single static file.
-
-Rename the site to something readable (Netlify: Site settings → Change site name), e.g.
-`july-opt-ead.netlify.app`. A random auto-generated URL in a Reddit comment about immigration
-paperwork reads as a phishing link.
-
-## 4. Post to Reddit
-
-> Made a tiny tracker so we can see the July PP queue in one place — no signup, no email.
-> Just username + PP start date + status: <your-url>
-> Come back and enter the same username to update when you get the API update / approval.
-
-## Notes
-
-- The page auto-refreshes every 60 seconds.
-- The browser remembers your username, so returning visitors get their row pre-filled and
-  highlighted in the table.
-- There are no passwords: anyone who knows a username could change that row. That's the
-  deliberate trade for zero friction. For a 100-person thread it's fine.
-- To clean up junk rows: Supabase Studio → **Table Editor → entries** → delete.
-- The anon key is public by design. The table has row-level security on with zero policies,
-  so that key can only read the view and call `save_entry` — it can't drop, dump, or delete
-  anything.
-
-## Clearing test data
-
-Anything you typed in while testing lives in your Supabase table. To wipe it before sharing
-the link, run this in **SQL Editor**:
-
-```sql
-truncate public.entries;
-```
-
-Or delete individual rows in **Table Editor → entries**.
+Needs the project linked (`npx vercel link`) so it can pull the Redis variables.

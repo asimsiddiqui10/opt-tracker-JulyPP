@@ -3,13 +3,12 @@
   "configurations": [
     {
       "name": "opt-tracker",
-      "runtimeExecutable": "python3",
+      "runtimeExecutable": "npx",
       "runtimeArgs": [
-        "-m",
-        "http.server",
-        "4173",
-        "--directory",
-        "site"
+        "vercel",
+        "dev",
+        "--listen",
+        "4173"
       ],
       "port": 4173
     }
