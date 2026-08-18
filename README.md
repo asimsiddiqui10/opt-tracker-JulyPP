@@ -27,11 +27,12 @@ No dependencies, no build step.
 
 Create a project, then **SQL Editor → New query** → paste `schema.sql` → **Run**.
 
-Then open **Project Settings → API** and copy two values:
+Then copy two values — the Project URL is under **Settings → Data API**, the keys
+under **Settings → API Keys**:
 
 | Value | Where it is | Goes into Vercel as |
 |---|---|---|
-| Project URL | `https://xxxxxxxx.supabase.co` | `SUPABASE_URL` |
+| Project URL | `https://xxxxxxxx.supabase.co` (a trailing `/rest/v1` is fine too) | `SUPABASE_URL` |
 | Secret key (`sb_secret_…`), a.k.a. the legacy `service_role` key | same page, under API Keys | `SUPABASE_SERVICE_ROLE_KEY` |
 
 **Use the secret/service_role key, not the publishable/anon key.** The table has row-level
@@ -106,3 +107,8 @@ npx vercel dev
 ```
 
 `vercel dev` pulls the environment variables from the linked project.
+
+## Troubleshooting
+
+Open `/api/health` on the deployed site. It checks each part of the setup independently and
+names the next step, without echoing any secret value.
