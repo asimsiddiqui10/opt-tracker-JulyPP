@@ -75,15 +75,19 @@ auto-pausing entirely. For a 20-person tracker the cron is enough.
 
 ## Chart range
 
-Every date from July 15–31 always appears, even with zero entries. To widen it, edit the two
-constants at the top of the `<script>` block in `public/index.html`:
+The chart has July / August / All toggles. Each month's window always renders in full, even
+on dates with zero entries. The windows are two constants at the top of the `<script>` block
+in `public/index.html`:
 
 ```js
-const RANGE_START = "2026-07-15";
-const RANGE_END   = "2026-07-31";
+const RANGES = {
+  july: { start: "2026-07-15", end: "2026-07-31" },
+  aug:  { start: "2026-08-01", end: "2026-08-31" },
+};
 ```
 
-Dates outside that window still show up if someone enters one — the range is a floor, not a filter.
+Hovering a bar names everyone on that date, grouped by status; on touch screens, tapping a bar
+expands the same breakdown inline.
 
 ## Moderating
 

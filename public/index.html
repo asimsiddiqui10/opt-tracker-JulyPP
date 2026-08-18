@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>July OPT EAD Tracker</title>
-<meta name="description" content="Crowd-sourced tracker for July premium-processing OPT EAD cases: who is waiting and who got approved.">
+<title>July/Aug PP OPT EAD Tracker</title>
+<meta name="description" content="Crowd-sourced tracker for July and August premium-processing OPT EAD cases: who is waiting and who got approved.">
 <style>
   :root{
     --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a323d;
@@ -46,6 +46,25 @@
   .bar{display:grid;grid-template-columns:78px 1fr 34px;gap:8px;align-items:center;font-size:.8rem}
   .bar .track{display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--panel2)}
   .bar.empty span{opacity:.45}
+  .bar{cursor:default}
+  .bar.has:hover .track{outline:1px solid var(--acc);outline-offset:1px}
+  .bar.has{cursor:pointer}
+  .cardhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .toggle{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
+  .toggle button{background:transparent;color:var(--dim);border:0;border-radius:0;
+      padding:6px 14px;font-size:.82rem;font-weight:600}
+  .toggle button+button{border-left:1px solid var(--line)}
+  .toggle button[aria-pressed="true"]{background:var(--acc);color:#fff}
+  .total{margin:0 0 14px;font-size:.85rem;color:var(--dim)}
+  .detail{grid-column:1/-1;padding:2px 0 8px 86px;font-size:.8rem;color:var(--dim)}
+  .detail b{color:var(--tx);font-weight:600}
+  #tip{position:fixed;z-index:20;pointer-events:none;display:none;max-width:280px;
+       background:#0b0e13;border:1px solid var(--line);border-radius:8px;padding:9px 11px;
+       font-size:.8rem;line-height:1.45;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+  #tip .d{color:var(--tx);font-weight:600;margin-bottom:4px}
+  #tip .s{color:var(--dim)}
+  #tip .s b{color:var(--tx);font-weight:600}
+  @media (max-width:520px){ .detail{padding-left:0} }
   .muted{color:var(--dim);font-size:.85rem}
   .err{color:#ff7b72;font-size:.85rem}
   .ok{color:var(--approved);font-size:.85rem}
@@ -56,10 +75,11 @@
 </style>
 </head>
 <body>
+<div id="tip"></div>
 <div class="wrap">
 
-  <h1>July OPT EAD Tracker</h1>
-  <p class="sub">Premium processing, July cases. Three fields, no signup. Come back and enter the
+  <h1>July/Aug PP OPT EAD Tracker</h1>
+  <p class="sub">Premium processing. Three fields, no signup. Come back and enter the
   same username to change your status.</p>
 
   <div class="card">
@@ -93,7 +113,15 @@
   </div>
 
   <div class="card">
-    <h2>Case status by PP start date</h2>
+    <div class="cardhead">
+      <h2>Case status by PP start date</h2>
+      <div class="toggle" id="toggle">
+        <button type="button" data-range="july">July</button>
+        <button type="button" data-range="aug">August</button>
+        <button type="button" data-range="all">All</button>
+      </div>
+    </div>
+    <p class="total" id="total"></p>
     <div class="bars" id="chart"></div>
     <div class="legend">
       <span><i style="background:var(--waiting)"></i>Waiting</span>
@@ -108,7 +136,7 @@
     <h2>Everyone (<span id="count">0</span>)</h2>
     <div class="scroll">
       <table>
-        <thead><tr><th>Username</th><th>PP start</th><th>Status</th><th>Days</th><th>Updated</th></tr></thead>
+        <thead><tr><th>Username</th><th>PP start</th><th>Status</th><th>Days</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -122,9 +150,12 @@
 
 <script>
 // ─── CONFIG ────────────────────────────────────────────────────────────────
-// Every date in this range always shows on the chart, even with zero entries.
-const RANGE_START = "2026-07-15";
-const RANGE_END   = "2026-07-31";
+// Every date in the selected range always shows on the chart, even with zero
+// entries. "all" spans both plus anything anyone actually entered.
+const RANGES = {
+  july: { start: "2026-07-15", end: "2026-07-31" },
+  aug:  { start: "2026-08-01", end: "2026-08-31" },
+};
 // ────────────────────────────────────────────────────────────────────────────
 
 const STATUSES = {
@@ -137,6 +168,8 @@ const STATUSES = {
 const ORDER = ["waiting", "api_update", "approved", "card_produced", "delivered"];
 const $ = id => document.getElementById(id);
 let rows = [];
+let view = localStorage.getItem("opt_view") || "july";  // july | aug | all
+let openDate = null;                                     // tapped bar, for touch
 
 async function load() {
   const r = await fetch("/api/entries", { cache: "no-store" });
@@ -152,34 +185,60 @@ const esc = s => (s || "").replace(/[<>&"]/g, c =>
 const clean = s => s.trim().toLowerCase().replace(/^\/?u\//, "");
 const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a + "T00:00:00")) / 86400000);
 
-// Every ISO date from RANGE_START to RANGE_END, inclusive.
-function rangeDates() {
-  const out = [], end = new Date(RANGE_END + "T00:00:00");
-  for (let d = new Date(RANGE_START + "T00:00:00"); d <= end; d.setDate(d.getDate() + 1)) {
+// Every ISO date from start to end, inclusive.
+function datesBetween(start, end) {
+  const out = [], last = new Date(end + "T00:00:00");
+  for (let d = new Date(start + "T00:00:00"); d <= last; d.setDate(d.getDate() + 1)) {
     out.push(d.toISOString().slice(0, 10));
   }
   return out;
 }
 
+// The dates the chart should show for the current view.
+function visibleDates(entered) {
+  if (view === "all") {
+    const all = [...datesBetween(RANGES.july.start, RANGES.july.end),
+                 ...datesBetween(RANGES.aug.start,  RANGES.aug.end), ...entered];
+    return [...new Set(all)].sort();
+  }
+  const { start, end } = RANGES[view];
+  // the fixed window, plus any entered date that falls inside it
+  const inside = entered.filter(d => d >= start && d <= end);
+  return [...new Set([...datesBetween(start, end), ...inside])].sort();
+}
+
 function render() {
-  // ── chart ──
+  // group usernames by date + status so the chart can name them on hover
   const byDate = {};
   rows.forEach(r => {
-    byDate[r.pp_date] = byDate[r.pp_date] || { n: 0 };
-    byDate[r.pp_date][r.status] = (byDate[r.pp_date][r.status] || 0) + 1;
-    byDate[r.pp_date].n++;
+    const d = (byDate[r.pp_date] = byDate[r.pp_date] || { n: 0, who: {} });
+    (d.who[r.status] = d.who[r.status] || []).push(r.username);
+    d.n++;
   });
-  // the fixed July window, plus any outside date someone actually entered
-  const dates = [...new Set([...rangeDates(), ...Object.keys(byDate)])].sort();
-  const max = Math.max(1, ...dates.map(d => (byDate[d] || { n: 0 }).n));
 
+  const dates = visibleDates(Object.keys(byDate));
+  const max = Math.max(1, ...dates.map(d => (byDate[d] || { n: 0 }).n));
+  const shown = dates.reduce((s, d) => s + (byDate[d] || { n: 0 }).n, 0);
+
+  // ── toggle + totals ──
+  [...document.querySelectorAll("#toggle button")].forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.range === view)));
+  $("total").textContent = view === "all"
+    ? `${rows.length} ${rows.length === 1 ? "person" : "people"} total`
+    : `${shown} of ${rows.length} ${rows.length === 1 ? "person" : "people"} in this view`;
+
+  // ── chart ──
   $("chart").innerHTML = dates.map(d => {
-    const b = byDate[d] || { n: 0 };
-    const segs = ORDER.filter(k => b[k]).map(k =>
-      `<div title="${STATUSES[k].label}: ${b[k]}" style="width:${b[k] / max * 100}%;background:var(--${STATUSES[k].color})"></div>`
+    const b = byDate[d] || { n: 0, who: {} };
+    const segs = ORDER.filter(k => b.who[k]).map(k =>
+      `<div style="width:${b.who[k].length / max * 100}%;background:var(--${STATUSES[k].color})"></div>`
     ).join("");
-    return `<div class="bar${b.n ? "" : " empty"}"><span class="muted">${fmt(d)}</span>
-      <div class="track">${segs}</div><span class="muted">${b.n}</span></div>`;
+    return `<div class="bar${b.n ? " has" : " empty"}" data-date="${d}">
+        <span class="muted">${fmt(d)}</span>
+        <div class="track">${segs}</div>
+        <span class="muted">${b.n}</span>
+      </div>` +
+      (openDate === d && b.n ? `<div class="detail">${breakdown(b.who)}</div>` : "");
   }).join("");
 
   // ── table ──
@@ -191,9 +250,57 @@ function render() {
       <td>${fmt(r.pp_date)}</td>
       <td><span class="pill p-${r.status}">${STATUSES[r.status].label}</span></td>
       <td>${daysBetween(r.pp_date, rank(r.status) ? r.updated_at : new Date())}d</td>
-      <td class="muted">${fmt(r.updated_at.slice(0, 10))}</td>
-    </tr>`).join("") || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>';
+    </tr>`).join("") || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>';
 }
+
+// "Approved (2): alpha, bravo" for each status present on a date
+function breakdown(who) {
+  return ORDER.filter(k => who[k]).map(k =>
+    `<div class="s"><b>${STATUSES[k].label} (${who[k].length}):</b> ` +
+    `${who[k].map(esc).sort().join(", ")}</div>`).join("");
+}
+
+// ─── chart interaction: hover tooltip on desktop, tap to expand on touch ────
+const tip = $("tip");
+function tipFor(date) {
+  const r = rows.filter(x => x.pp_date === date);
+  if (!r.length) return null;
+  const who = {};
+  r.forEach(x => (who[x.status] = who[x.status] || []).push(x.username));
+  return `<div class="d">${fmt(date)} · ${r.length} ${r.length === 1 ? "person" : "people"}</div>` +
+         breakdown(who);
+}
+function placeTip(e) {
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = e.clientY - h - pad;
+  tip.style.left = Math.max(8, x) + "px";
+  tip.style.top = Math.max(8, y) + "px";
+}
+$("chart").addEventListener("mousemove", e => {
+  const bar = e.target.closest(".bar");
+  const html = bar && tipFor(bar.dataset.date);
+  if (!html) { tip.style.display = "none"; return; }
+  tip.innerHTML = html; tip.style.display = "block"; placeTip(e);
+});
+$("chart").addEventListener("mouseleave", () => { tip.style.display = "none"; });
+$("chart").addEventListener("click", e => {
+  const bar = e.target.closest(".bar");
+  if (!bar) return;
+  openDate = openDate === bar.dataset.date ? null : bar.dataset.date;
+  tip.style.display = "none";
+  render();
+});
+
+$("toggle").addEventListener("click", e => {
+  const b = e.target.closest("button[data-range]");
+  if (!b) return;
+  view = b.dataset.range;
+  localStorage.setItem("opt_view", view);
+  openDate = null;
+  render();
+});
 
 $("save").addEventListener("click", async () => {
   const msg = $("msg"); msg.className = ""; msg.textContent = "";
