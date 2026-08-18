@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%234c8dff%27%2F%3E%3Cstop%20offset%3D%27.55%27%20stop-color%3D%27%238957e5%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%233fb950%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2732%27%20r%3D%2731%27%20fill%3D%27url%28%23g%29%27%2F%3E%3C%2Fsvg%3E">
 <title>July/Aug PP OPT EAD Tracker</title>
 <meta name="description" content="Crowd-sourced tracker for July and August premium-processing OPT EAD cases: who is waiting and who got approved.">
 <style>
@@ -26,7 +27,13 @@
   input,select{width:100%;background:var(--panel2);color:var(--tx);
       border:1px solid var(--line);border-radius:8px;padding:10px}
   input:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+  .grid>div{min-width:0}
+  input,select{min-width:0;max-width:100%}
+  /* Safari sizes date inputs from their content and ignores width:100%. */
+  input[type="date"]{-webkit-appearance:none;appearance:none;height:42px}
+  input[type="date"]::-webkit-date-and-time-value{text-align:left}
+  .side{font-size:.78rem;color:var(--dim);flex:1 1 200px;min-width:0}
   button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:11px 22px;
          font-weight:600;cursor:pointer}
   button:disabled{opacity:.5;cursor:default}
@@ -64,7 +71,12 @@
   #tip .d{color:var(--tx);font-weight:600;margin-bottom:4px}
   #tip .s{color:var(--dim)}
   #tip .s b{color:var(--tx);font-weight:600}
-  @media (max-width:520px){ .detail{padding-left:0} }
+  @media (max-width:520px){
+    .detail{padding-left:0}
+    /* keep the four columns on screen instead of forcing a sideways scroll */
+    th,td{padding:8px 5px}
+    .pill{font-size:.68rem;padding:3px 7px}
+  }
   .muted{color:var(--dim);font-size:.85rem}
   .err{color:#ff7b72;font-size:.85rem}
   .ok{color:var(--approved);font-size:.85rem}
@@ -108,8 +120,8 @@
     <div class="row">
       <button id="save">Save</button>
       <span id="msg"></span>
+      <span class="side">Same username = same row. Nothing else is stored.</span>
     </div>
-    <p class="muted" style="margin:12px 0 0">Same username = same row. Nothing else is stored.</p>
   </div>
 
   <div class="card">
@@ -124,16 +136,23 @@
     <p class="total" id="total"></p>
     <div class="bars" id="chart"></div>
     <div class="legend">
-      <span><i style="background:var(--waiting)"></i>Waiting</span>
-      <span><i style="background:var(--api)"></i>API update</span>
-      <span><i style="background:var(--approved)"></i>Approved</span>
-      <span><i style="background:var(--produced)"></i>Card produced</span>
       <span><i style="background:var(--delivered)"></i>Delivered</span>
+      <span><i style="background:var(--produced)"></i>Card produced</span>
+      <span><i style="background:var(--approved)"></i>Approved</span>
+      <span><i style="background:var(--api)"></i>API update</span>
+      <span><i style="background:var(--waiting)"></i>Waiting</span>
     </div>
   </div>
 
   <div class="card">
-    <h2>Everyone (<span id="count">0</span>)</h2>
+    <div class="cardhead">
+      <h2>Everyone (<span id="count">0</span>)</h2>
+      <div class="toggle" id="toggle2">
+        <button type="button" data-range="july">July</button>
+        <button type="button" data-range="aug">August</button>
+        <button type="button" data-range="all">All</button>
+      </div>
+    </div>
     <div class="scroll">
       <table>
         <thead><tr><th>Username</th><th>PP start</th><th>Status</th><th>Days</th></tr></thead>
@@ -166,9 +185,12 @@ const STATUSES = {
   delivered:     { label: "Card delivered",    rank: 4, color: "delivered" },
 };
 const ORDER = ["waiting", "api_update", "approved", "card_produced", "delivered"];
+// Bars and breakdowns read left-to-right as progress: delivered first, waiting last.
+const CHART_ORDER = [...ORDER].reverse();
 const $ = id => document.getElementById(id);
 let rows = [];
-let view = localStorage.getItem("opt_view") || "july";  // july | aug | all
+let view = localStorage.getItem("opt_view") || "july";        // chart: july | aug | all
+let tableView = localStorage.getItem("opt_table_view") || "july";  // table, independent
 let openDate = null;                                     // tapped bar, for touch
 
 async function load() {
@@ -192,6 +214,13 @@ function datesBetween(start, end) {
     out.push(d.toISOString().slice(0, 10));
   }
   return out;
+}
+
+// Rows whose PP date falls inside the named view.
+function rowsIn(v) {
+  if (v === "all") return rows;
+  const { start, end } = RANGES[v];
+  return rows.filter(r => r.pp_date >= start && r.pp_date <= end);
 }
 
 // The dates the chart should show for the current view.
@@ -230,7 +259,7 @@ function render() {
   // ── chart ──
   $("chart").innerHTML = dates.map(d => {
     const b = byDate[d] || { n: 0, who: {} };
-    const segs = ORDER.filter(k => b.who[k]).map(k =>
+    const segs = CHART_ORDER.filter(k => b.who[k]).map(k =>
       `<div style="width:${b.who[k].length / max * 100}%;background:var(--${STATUSES[k].color})"></div>`
     ).join("");
     return `<div class="bar${b.n ? " has" : " empty"}" data-date="${d}">
@@ -242,20 +271,24 @@ function render() {
   }).join("");
 
   // ── table ──
-  $("count").textContent = rows.length;
+  [...document.querySelectorAll("#toggle2 button")].forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.range === tableView)));
+  const tableRows = rowsIn(tableView);
+  $("count").textContent = tableRows.length;
   const me = localStorage.getItem("opt_user");
-  $("tbody").innerHTML = rows.map(r => `
+  $("tbody").innerHTML = tableRows.map(r => `
     <tr class="${r.username === me ? "mine" : ""}">
       <td>${esc(r.username)}</td>
       <td>${fmt(r.pp_date)}</td>
       <td><span class="pill p-${r.status}">${STATUSES[r.status].label}</span></td>
       <td>${daysBetween(r.pp_date, rank(r.status) ? r.updated_at : new Date())}d</td>
-    </tr>`).join("") || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>';
+    </tr>`).join("") ||
+    `<tr><td colspan="4" class="muted">No cases in this view yet.</td></tr>`;
 }
 
 // "Approved (2): alpha, bravo" for each status present on a date
 function breakdown(who) {
-  return ORDER.filter(k => who[k]).map(k =>
+  return CHART_ORDER.filter(k => who[k]).map(k =>
     `<div class="s"><b>${STATUSES[k].label} (${who[k].length}):</b> ` +
     `${who[k].map(esc).sort().join(", ")}</div>`).join("");
 }
@@ -299,6 +332,14 @@ $("toggle").addEventListener("click", e => {
   view = b.dataset.range;
   localStorage.setItem("opt_view", view);
   openDate = null;
+  render();
+});
+
+$("toggle2").addEventListener("click", e => {
+  const b = e.target.closest("button[data-range]");
+  if (!b) return;
+  tableView = b.dataset.range;
+  localStorage.setItem("opt_table_view", tableView);
   render();
 });
 
