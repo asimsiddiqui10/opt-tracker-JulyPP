@@ -217,9 +217,16 @@ $("save").addEventListener("click", async () => {
     await load(); render();
   } catch (e) {
     msg.className = "err";
-    msg.textContent = String(e.message) === "tracker_full"
-      ? "The tracker is full — ping the person who set it up."
-      : "Save failed — try again.";
+    const code = String(e.message);
+    msg.innerHTML =
+      code === "tracker_full"        ? "The tracker is full — ping the person who set it up."
+    : code === "storage_not_configured" ? 'Database not connected yet — see <a href="/api/health">/api/health</a>.'
+    : code === "read_failed" || code === "write_failed"
+                                     ? 'Database error — see <a href="/api/health">/api/health</a>.'
+    : code === "bad_username"        ? "Username must be at least 2 characters (letters, numbers, . _ -)."
+    : code === "bad_date"            ? "Pick a valid PP start date."
+    : code === "bad_status"          ? "Pick a status from the list."
+                                     : "Save failed — try again.";
   } finally { $("save").disabled = false; }
 });
 
@@ -231,7 +238,8 @@ $("username").addEventListener("blur", () => {
 (async function init() {
   try { await load(); } catch (e) {
     $("chart").innerHTML =
-      '<p class="err">Could not load entries. If this just deployed, make sure a Redis store is connected in Vercel.</p>';
+      '<p class="err">Could not load entries. Open <a href="/api/health">/api/health</a> ' +
+      'to see which part of the setup is missing.</p>';
     return;
   }
   const me = localStorage.getItem("opt_user");
