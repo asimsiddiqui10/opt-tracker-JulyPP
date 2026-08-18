@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>July OPT EAD Tracker</title>
+<meta name="description" content="Crowd-sourced tracker for July premium-processing OPT EAD cases: who is waiting and who got approved.">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a323d;
+    --tx:#e6edf3; --dim:#8b96a5; --acc:#4c8dff;
+    --waiting:#6b7684; --api:#c99a3a; --approved:#3fb950; --produced:#2ea6a6; --delivered:#8957e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);line-height:1.5;-webkit-text-size-adjust:100%;
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:820px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  h2{font-size:.8rem;margin:0 0 14px;color:var(--dim);font-weight:600;
+     text-transform:uppercase;letter-spacing:.06em}
+  .sub{color:var(--dim);font-size:.9rem;margin:0 0 24px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:16px;margin-bottom:16px}
+  label{display:block;font-size:.8rem;color:var(--dim);margin:0 0 4px}
+  input,select,button{font:inherit;font-size:.95rem}
+  input,select{width:100%;background:var(--panel2);color:var(--tx);
+      border:1px solid var(--line);border-radius:8px;padding:10px}
+  input:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:14px}
+  button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:11px 22px;
+         font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .pill{display:inline-block;font-size:.72rem;font-weight:600;padding:3px 9px;border-radius:999px;
+        color:#0e1116;white-space:nowrap}
+  .p-waiting{background:var(--waiting);color:#fff}
+  .p-api_update{background:var(--api)} .p-approved{background:var(--approved)}
+  .p-card_produced{background:var(--produced)} .p-delivered{background:var(--delivered);color:#fff}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th{text-align:left;color:var(--dim);font-size:.7rem;text-transform:uppercase;
+     letter-spacing:.04em;padding:8px;border-bottom:1px solid var(--line)}
+  td{padding:9px 8px;border-bottom:1px solid var(--line)}
+  tr.mine td{background:rgba(76,141,255,.1)}
+  .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .bars{display:flex;flex-direction:column;gap:5px}
+  .bar{display:grid;grid-template-columns:78px 1fr 34px;gap:8px;align-items:center;font-size:.8rem}
+  .bar .track{display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--panel2)}
+  .bar.empty span{opacity:.45}
+  .muted{color:var(--dim);font-size:.85rem}
+  .err{color:#ff7b72;font-size:.85rem}
+  .ok{color:var(--approved);font-size:.85rem}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:.75rem;color:var(--dim);margin-top:12px}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+  footer{color:var(--dim);font-size:.8rem;text-align:center;margin-top:28px;line-height:1.7}
+  a{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>July OPT EAD Tracker</h1>
+  <p class="sub">Premium processing, July cases. Three fields, no signup. Come back and enter the
+  same username to change your status.</p>
+
+  <div class="card">
+    <h2 id="formTitle">Add or update your case</h2>
+    <div class="grid">
+      <div>
+        <label for="username">Username</label>
+        <input type="text" id="username" maxlength="30" placeholder="reddit name or anything"
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="ppdate">PP start date</label>
+        <input type="date" id="ppdate">
+      </div>
+      <div>
+        <label for="status">Status</label>
+        <select id="status">
+          <option value="waiting">Still waiting</option>
+          <option value="api_update">Silent API update</option>
+          <option value="approved">Approved</option>
+          <option value="card_produced">Card produced</option>
+          <option value="delivered">Card delivered</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <button id="save">Save</button>
+      <span id="msg"></span>
+    </div>
+    <p class="muted" style="margin:12px 0 0">Same username = same row. Nothing else is stored.</p>
+  </div>
+
+  <div class="card">
+    <h2>Case status by PP start date</h2>
+    <div class="bars" id="chart"></div>
+    <div class="legend">
+      <span><i style="background:var(--waiting)"></i>Waiting</span>
+      <span><i style="background:var(--api)"></i>API update</span>
+      <span><i style="background:var(--approved)"></i>Approved</span>
+      <span><i style="background:var(--produced)"></i>Card produced</span>
+      <span><i style="background:var(--delivered)"></i>Delivered</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Everyone (<span id="count">0</span>)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Username</th><th>PP start</th><th>Status</th><th>Days</th><th>Updated</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Community-run and unofficial. Always confirm on
+    <a href="https://egov.uscis.gov/casestatus/landing.do" target="_blank" rel="noopener">USCIS case status</a>.
+  </footer>
+</div>
+
+<script>
+// ─── CONFIG ── paste your two Supabase values here ──────────────────────────
+const SUPABASE_URL = "PASTE_YOUR_SUPABASE_URL";       // https://xxxx.supabase.co
+const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY";
+
+// Every date in this range always shows on the chart, even with zero entries.
+const RANGE_START = "2026-07-15";
+const RANGE_END   = "2026-07-31";
+// ────────────────────────────────────────────────────────────────────────────
+
+const STATUSES = {
+  waiting:       { label: "Still waiting",     rank: 0, color: "waiting" },
+  api_update:    { label: "Silent API update", rank: 1, color: "api" },
+  approved:      { label: "Approved",          rank: 2, color: "approved" },
+  card_produced: { label: "Card produced",     rank: 3, color: "produced" },
+  delivered:     { label: "Card delivered",    rank: 4, color: "delivered" },
+};
+const ORDER = ["waiting", "api_update", "approved", "card_produced", "delivered"];
+const $ = id => document.getElementById(id);
+let rows = [];
+
+const headers = {
+  "apikey": SUPABASE_ANON_KEY,
+  "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+  "Content-Type": "application/json",
+};
+async function load() {
+  const r = await fetch(
+    SUPABASE_URL + "/rest/v1/entries_public?select=*&order=pp_date.asc", { headers });
+  if (!r.ok) throw new Error(await r.text());
+  rows = await r.json();
+}
+
+const fmt = d => d ? new Date(d + "T00:00:00").toLocaleDateString(undefined,
+  { month: "short", day: "numeric" }) : "—";
+const rank = s => STATUSES[s] ? STATUSES[s].rank : 0;
+const esc = s => (s || "").replace(/[<>&"]/g, c =>
+  ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+const clean = s => s.trim().toLowerCase().replace(/^\/?u\//, "");
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a + "T00:00:00")) / 86400000);
+
+// Every ISO date from RANGE_START to RANGE_END, inclusive.
+function rangeDates() {
+  const out = [], end = new Date(RANGE_END + "T00:00:00");
+  for (let d = new Date(RANGE_START + "T00:00:00"); d <= end; d.setDate(d.getDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function render() {
+  // ── chart ──
+  const byDate = {};
+  rows.forEach(r => {
+    byDate[r.pp_date] = byDate[r.pp_date] || { n: 0 };
+    byDate[r.pp_date][r.status] = (byDate[r.pp_date][r.status] || 0) + 1;
+    byDate[r.pp_date].n++;
+  });
+  // the fixed July window, plus any outside date someone actually entered
+  const dates = [...new Set([...rangeDates(), ...Object.keys(byDate)])].sort();
+  const max = Math.max(1, ...dates.map(d => (byDate[d] || { n: 0 }).n));
+
+  $("chart").innerHTML = dates.map(d => {
+    const b = byDate[d] || { n: 0 };
+    const segs = ORDER.filter(k => b[k]).map(k =>
+      `<div title="${STATUSES[k].label}: ${b[k]}" style="width:${b[k] / max * 100}%;background:var(--${STATUSES[k].color})"></div>`
+    ).join("");
+    return `<div class="bar${b.n ? "" : " empty"}"><span class="muted">${fmt(d)}</span>
+      <div class="track">${segs}</div><span class="muted">${b.n}</span></div>`;
+  }).join("");
+
+  // ── table ──
+  $("count").textContent = rows.length;
+  const me = localStorage.getItem("opt_user");
+  $("tbody").innerHTML = rows.map(r => `
+    <tr class="${r.username === me ? "mine" : ""}">
+      <td>${esc(r.username)}</td>
+      <td>${fmt(r.pp_date)}</td>
+      <td><span class="pill p-${r.status}">${STATUSES[r.status].label}</span></td>
+      <td>${daysBetween(r.pp_date, rank(r.status) ? r.updated_at : new Date())}d</td>
+      <td class="muted">${fmt(r.updated_at.slice(0, 10))}</td>
+    </tr>`).join("") || '<tr><td colspan="5" class="muted">Nothing yet.</td></tr>';
+}
+
+$("save").addEventListener("click", async () => {
+  const msg = $("msg"); msg.className = ""; msg.textContent = "";
+  const username = clean($("username").value);
+  const pp_date = $("ppdate").value;
+  if (username.length < 2) { msg.className = "err"; msg.textContent = "Pick a username."; return; }
+  if (!pp_date) { msg.className = "err"; msg.textContent = "PP start date is required."; return; }
+
+  $("save").disabled = true;
+  const existed = rows.some(r => r.username === username);
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/save_entry", {
+      method: "POST", headers,
+      body: JSON.stringify({ p_username: username, p_pp_date: pp_date, p_status: $("status").value }),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    localStorage.setItem("opt_user", username);
+    msg.className = "ok"; msg.textContent = existed ? "Updated." : "Added. Come back to update it.";
+    await load(); render();
+  } catch (e) {
+    msg.className = "err"; msg.textContent = "Save failed — try again.";
+  } finally { $("save").disabled = false; }
+});
+
+$("username").addEventListener("blur", () => {
+  const mine = rows.find(r => r.username === clean($("username").value));
+  if (mine) { $("ppdate").value = mine.pp_date; $("status").value = mine.status; }
+});
+
+(async function init() {
+  try { await load(); } catch (e) {
+    $("chart").innerHTML =
+      '<p class="err">Could not reach the database. Check SUPABASE_URL and the anon key in index.html.</p>';
+    return;
+  }
+  const me = localStorage.getItem("opt_user");
+  const mine = me && rows.find(r => r.username === me);
+  if (mine) {
+    $("username").value = mine.username;
+    $("ppdate").value = mine.pp_date;
+    $("status").value = mine.status;
+    $("formTitle").textContent = "Update your status";
+  }
+  render();
+  setInterval(async () => { try { await load(); render(); } catch (e) {} }, 60000);
+})();
+</script>
+</body>
+</html>
