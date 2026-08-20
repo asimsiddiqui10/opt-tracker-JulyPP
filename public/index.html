@@ -359,7 +359,8 @@ $("save").addEventListener("click", async () => {
       body: JSON.stringify({ username, pp_date, status: $("status").value }),
     });
     const out = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(out.error || r.status);
+    if (!r.ok) throw new Error(
+      out.error === "tracker_full" && out.count ? `tracker_full:${out.count}` : (out.error || r.status));
     localStorage.setItem("opt_user", username);
     msg.className = "ok"; msg.textContent = existed ? "Updated." : "Added. Come back to update it.";
     await load(); render();
@@ -367,7 +368,8 @@ $("save").addEventListener("click", async () => {
     msg.className = "err";
     const code = String(e.message);
     msg.innerHTML =
-      code === "tracker_full"        ? "The tracker is full — ping the person who set it up."
+      code.startsWith("tracker_full") ?
+        `The tracker hit its ${code.split(":")[1] || ""} entry limit — ping the person who set it up.`
     : code === "storage_not_configured" ? 'Database not connected yet — see <a href="/api/health">/api/health</a>.'
     : code === "read_failed" || code === "write_failed"
                                      ? 'Database error — see <a href="/api/health">/api/health</a>.'

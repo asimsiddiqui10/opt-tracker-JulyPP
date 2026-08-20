@@ -1,7 +1,7 @@
-import { sb, configured } from "../lib/supabase.js";
+import { sb, countRows, configured } from "../lib/supabase.js";
 
 const STATUSES = new Set(["waiting", "api_update", "approved", "card_produced", "delivered"]);
-const MAX_ENTRIES = 200;   // backstop so a bored visitor can't fill the table
+const MAX_ENTRIES = 5000;  // runaway backstop only — a real group will never reach it
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
@@ -30,9 +30,9 @@ export default async function handler(req, res) {
     const existed = Array.isArray(found) && found.length > 0;
 
     if (!existed) {
-      const all = await sb(`entries?select=username&limit=${MAX_ENTRIES + 1}`);
-      if ((all || []).length >= MAX_ENTRIES) {
-        return res.status(429).json({ error: "tracker_full" });
+      const total = await countRows();
+      if (total !== null && total >= MAX_ENTRIES) {
+        return res.status(429).json({ error: "tracker_full", count: total, cap: MAX_ENTRIES });
       }
     }
 

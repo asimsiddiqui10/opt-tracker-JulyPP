@@ -1,7 +1,7 @@
 // Diagnostic endpoint: open /api/health in a browser to see which piece of the
 // setup is missing. Deliberately reports no secret values — only whether they
 // are present and what the database said back.
-import { normalizeUrl } from "../lib/supabase.js";
+import { normalizeUrl, countRows } from "../lib/supabase.js";
 
 const RAW_URL = normalizeUrl(process.env.SUPABASE_URL);
 const RAW_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
         out.next_step = "See database_said above.";
       }
     } else {
-      out.row_count_sample = JSON.parse(body).length;
+      try { out.total_rows = await countRows(); } catch { out.total_rows = null; }
       out.next_step = "Everything is wired up correctly.";
     }
   } catch (e) {
